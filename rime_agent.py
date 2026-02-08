@@ -24,13 +24,14 @@ from livekit.agents import (
 from livekit.agents.voice import MetricsCollectedEvent
 from livekit.plugins import (
     openai,
+    google,
+    anthropic,
     noise_cancellation,
     rime,
     silero,
+    elevenlabs,
 )
 from livekit.agents.tokenize import tokenizer
-
-from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 from agent_configs import VOICE_CONFIGS
 from tools.snowflake_rag_tool import get_snowflake_rag_response, write_chat_to_snowflake
@@ -85,47 +86,69 @@ async def entrypoint(ctx: JobContext):
     # Determine which configuration to use
     if LOADED_CONFIG:
         voice_name = LOADED_CONFIG.get("name", "custom")
-        logger.info(f"Running Rime voice agent with loaded config: {voice_name} for participant {participant.identity}")
+        logger.info(f"Running voice agent with loaded config: {voice_name} for participant {participant.identity}")
         
-        # Extract TTS options from loaded config
-        tts_provider = LOADED_CONFIG.get("tts_type", "rime")
+        tts_provider = (LOADED_CONFIG.get("tts_type") or LOADED_CONFIG.get("provider") or "rime").lower()
         voice_options = LOADED_CONFIG.get("voice_options", {})
         
-        # Use Rime TTS with configuration from JSON
-        rime_tts = rime.TTS(
-            model=voice_options.get("model", "arcana"),
-            speaker=voice_options.get("speaker", "celeste"),
-            speed_alpha=voice_options.get("speed_alpha", 1.5),
-            reduce_latency=voice_options.get("reduce_latency", True),
-            max_tokens=voice_options.get("max_tokens", 3400),
-        )
+        # TTS from JSON: ElevenLabs or Rime
+        if tts_provider == "elevenlabs":
+            el_opts = dict(voice_options)
+            model = el_opts.pop("model_id", "eleven_multilingual_v2")
+            voice_id = el_opts.pop("voice_id", None)
+            if "optimize_streaming_latency" in el_opts:
+                el_opts["streaming_latency"] = el_opts.pop("optimize_streaming_latency")
+            voice_tts = elevenlabs.TTS(model=model, voice_id=voice_id, **el_opts)
+        else:
+            voice_tts = rime.TTS(
+                model=voice_options.get("model", "arcana"),
+                speaker=voice_options.get("speaker", "celeste"),
+                speed_alpha=voice_options.get("speed_alpha", 1.5),
+                reduce_latency=voice_options.get("reduce_latency", True),
+                max_tokens=voice_options.get("max_tokens", 3400),
+            )
         
         llm_prompt = LOADED_CONFIG.get("personality_prompt", "You are a helpful assistant.")
-        intro_phrase = LOADED_CONFIG.get("greeting", {}).get("intro_phrase", "Hello!")
+        greeting = LOADED_CONFIG.get("greeting") or {}
+        intro_phrase = greeting.get("intro_phrase", LOADED_CONFIG.get("intro_phrase", "Hello!"))
+        
+        # LLM from JSON: llm.provider + llm.model or llm_provider + llm_model
+        llm_cfg = LOADED_CONFIG.get("llm") or {}
+        llm_provider = (llm_cfg.get("provider") or LOADED_CONFIG.get("llm_provider") or "openai").lower()
+        llm_model = llm_cfg.get("model") or LOADED_CONFIG.get("llm_model", "gpt-4o-mini")
+        if llm_provider == "google":
+            agent_llm = google.LLM(model=llm_model)
+        elif llm_provider == "anthropic":
+            api_key = (os.getenv("ANTHROPIC_API_KEY") or os.getenv("anthropic_api_key") or "").strip().strip('"').strip("'")
+            if not api_key:
+                raise ValueError("ANTHROPIC_API_KEY is not set. Set it in .env for Anthropic/Claude.")
+            os.environ["ANTHROPIC_API_KEY"] = api_key
+            agent_llm = anthropic.LLM(model=llm_model)
+        else:
+            agent_llm = openai.LLM(model=llm_model)
     else:
         voice_name = VOICE
         logger.info(f"Running Rime voice agent for voice config {voice_name} and participant {participant.identity}")
         
-        rime_tts = rime.TTS(
-            **VOICE_CONFIGS[VOICE]["tts_options"]
-        )
+        voice_tts = rime.TTS(**VOICE_CONFIGS[VOICE]["tts_options"])
         if VOICE_CONFIGS[VOICE].get("sentence_tokenizer"):
             sentence_tokenizer = VOICE_CONFIGS[VOICE].get("sentence_tokenizer")
             if not isinstance(sentence_tokenizer, tokenizer.SentenceTokenizer):
                 raise TypeError(
                     f"Expected sentence_tokenizer to be an instance of tokenizer.SentenceTokenizer, got {type(sentence_tokenizer)}"
                 )
-            rime_tts = tts.StreamAdapter(tts=rime_tts, sentence_tokenizer=sentence_tokenizer)
+            voice_tts = tts.StreamAdapter(tts=voice_tts, sentence_tokenizer=sentence_tokenizer)
         
         llm_prompt = VOICE_CONFIGS[VOICE]["llm_prompt"]
         intro_phrase = VOICE_CONFIGS[VOICE]["intro_phrase"]
+        agent_llm = openai.LLM(model="gpt-4o-mini")
 
     session = AgentSession(
         stt=openai.STT(),
-        llm=openai.LLM(model="gpt-4o-mini"),
-        tts=rime_tts,
+        llm=agent_llm,
+        tts=voice_tts,
         vad=ctx.proc.userdata["vad"],
-        turn_detection=MultilingualModel()
+        turn_detection=None,
     )
     usage_collector = metrics.UsageCollector()
 
