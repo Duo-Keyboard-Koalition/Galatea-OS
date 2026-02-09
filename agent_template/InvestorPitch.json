@@ -2,6 +2,7 @@
   "name": "investor_pitch",
   "uuid": "investor-pitch-uuid",
   "role": "Founder",
+  "is_anthropomorphic": true,
   "sex": "male",
   "agent_id": "investor-pitch-agent",
   "provider": "elevenlabs",

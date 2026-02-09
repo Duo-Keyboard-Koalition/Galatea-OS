@@ -2,6 +2,7 @@
     "name": "ludia",
     "uuid": "81556f32-5df0-4176-9537-5068c5e3a280",
     "role": "Girl",
+    "is_anthropomorphic": true,
     "sex": "female",
     "agent_id": "AW_5NwXohKgokac",
     "provider": "rime",

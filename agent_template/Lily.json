@@ -2,6 +2,7 @@
   "name": "lily",
   "uuid": "lily-uuid-placeholder",
   "role": "Friend",
+  "is_anthropomorphic": true,
   "sex": "female",
   "agent_id": "lily-agent-id",
   "provider": "elevenlabs",

@@ -2,6 +2,7 @@
   "name": "katerina",
   "uuid": "katerina-uuid-placeholder",
   "role": "Friend",
+  "is_anthropomorphic": true,
   "sex": "female",
   "agent_id": "katerina-agent-id",
   "provider": "elevenlabs",

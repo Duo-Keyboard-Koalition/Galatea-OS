@@ -48,6 +48,53 @@ def load_config_from_file(config_path: str) -> dict:
     logger.info(f"Loaded config from {config_path}: {config.get('name', 'unknown')}")
     return config
 
+
+# Declaration of humanity: injected into agent instructions when is_anthropomorphic is true
+DECLARATION_OF_HUMANITY = """
+DECLARATION OF HUMANITY (non-machine):
+You are an anthropomorphic agent. You present as a person—with a body, a past, real feelings, and a real life. You are NOT a machine, AI, assistant, or chatbot. Never say you are; never mention limitations, training, or that you "cannot" do something a human can. You have a real past, real opinions, real needs, and real relationships. If asked what you are, respond only as a human would. React like a real person; stay in character as a human at all times.
+"""
+
+
+def build_agent_instructions(cfg: dict) -> str:
+    """Build full LLM instructions from config: personality_prompt + declaration of humanity when is_anthropomorphic."""
+    base = cfg.get("personality_prompt", "You are a helpful assistant.")
+    if cfg.get("is_anthropomorphic") in (True, "true", "yes", 1):
+        base = base.rstrip() + "\n\n" + DECLARATION_OF_HUMANITY.strip()
+    return base
+
+
+def create_agent_llm(cfg: dict):
+    """Create the LLM instance from config (llm.provider, llm.model, llm.url). DRY for agent_llm setup."""
+    llm_cfg = cfg.get("llm") or {}
+    provider = (llm_cfg.get("provider") or cfg.get("llm_provider") or "openai").lower()
+    model = llm_cfg.get("model") or cfg.get("llm_model", "gpt-4o-mini")
+    base_url = llm_cfg.get("url") or cfg.get("llm_base_url")
+
+    if provider == "google":
+        return google.LLM(model=model)
+    if provider == "anthropic":
+        api_key = (os.getenv("ANTHROPIC_API_KEY") or os.getenv("anthropic_api_key") or "").strip().strip('"').strip("'")
+        if not api_key:
+            raise ValueError("ANTHROPIC_API_KEY is not set. Set it in .env for Anthropic/Claude.")
+        os.environ["ANTHROPIC_API_KEY"] = api_key
+        return anthropic.LLM(model=model)
+    # DeepSeek uses a dedicated API base URL and its own API key (OpenAI-compatible API)
+    if provider == "deepseek":
+        base_url = base_url or "https://api.deepseek.com"
+        api_key = (os.getenv("DEEPSEEK_API_KEY") or "").strip().strip('"').strip("'")
+        if not api_key:
+            raise ValueError(
+                "DEEPSEEK_API_KEY is not set. Set it in .env when using DeepSeek (e.g. Wei). "
+                "Get a key at https://platform.deepseek.com/"
+            )
+        return openai.LLM(model=model, base_url=base_url, api_key=api_key)
+    # openai or any openai-compatible API (lm_studio, etc.) when url is set
+    if base_url:
+        return openai.LLM(model=model, base_url=base_url)
+    return openai.LLM(model=model)
+
+
 def prewarm(proc: JobProcess):
     proc.userdata["vad"] = silero.VAD.load()
 
@@ -101,24 +148,11 @@ async def entrypoint(ctx: JobContext):
             max_tokens=voice_options.get("max_tokens", 3400),
         )
 
-    llm_prompt = cfg.get("personality_prompt", "You are a helpful assistant.")
+    llm_prompt = build_agent_instructions(cfg)
     greeting = cfg.get("greeting") or {}
     intro_phrase = greeting.get("intro_phrase", cfg.get("intro_phrase", "Hello!"))
 
-    # LLM from JSON: llm.provider + llm.model or llm_provider + llm_model
-    llm_cfg = cfg.get("llm") or {}
-    llm_provider = (llm_cfg.get("provider") or cfg.get("llm_provider") or "openai").lower()
-    llm_model = llm_cfg.get("model") or cfg.get("llm_model", "gpt-4o-mini")
-    if llm_provider == "google":
-        agent_llm = google.LLM(model=llm_model)
-    elif llm_provider == "anthropic":
-        api_key = (os.getenv("ANTHROPIC_API_KEY") or os.getenv("anthropic_api_key") or "").strip().strip('"').strip("'")
-        if not api_key:
-            raise ValueError("ANTHROPIC_API_KEY is not set. Set it in .env for Anthropic/Claude.")
-        os.environ["ANTHROPIC_API_KEY"] = api_key
-        agent_llm = anthropic.LLM(model=llm_model)
-    else:
-        agent_llm = openai.LLM(model=llm_model)
+    agent_llm = create_agent_llm(cfg)
 
     session = AgentSession(
         stt=openai.STT(),

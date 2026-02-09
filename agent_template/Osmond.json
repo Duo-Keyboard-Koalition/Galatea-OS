@@ -2,6 +2,7 @@
     "name": "osmond",
     "uuid": "osmond-uuid-placeholder",
     "role": "Friend / Thinker",
+    "is_anthropomorphic": true,
     "sex": "male",
     "agent_id": "osmond-agent-id",
     "provider": "elevenlabs",
