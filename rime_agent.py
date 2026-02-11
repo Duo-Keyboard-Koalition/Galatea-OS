@@ -256,17 +256,15 @@ async def entrypoint(ctx: JobContext):
 
     agent_llm = create_agent_llm(cfg)
 
-    # STT: openai (cloud), whisper (local), huggingface (transformers), or silero (snakers4/silero-models)
+    # STT: silero (local), whisper (local server), or openai (cloud). huggingface STT removed; use silero or openai.
     if stt_provider == "silero":
         from plugins.silero_stt import SileroSTT
         voice_stt = SileroSTT(language=stt_cfg.get("language") or stt_model or "en")
-    elif stt_provider == "huggingface":
-        from plugins.hf_stt import HFSTT
-        voice_stt = HFSTT(model=stt_model or "openai/whisper-tiny")
     elif stt_provider == "whisper":
         base_url = stt_url or os.getenv("STT_WHISPER_BASE_URL", "http://localhost:8000/v1")
         voice_stt = openai.STT(model=stt_model or "whisper-1", base_url=base_url)
     else:
+        # openai (or huggingface config reverted to openai)
         voice_stt = openai.STT(
             model=stt_model or "gpt-4o-mini-transcribe",
             base_url=stt_url if stt_url else None,
@@ -331,9 +329,8 @@ async def entrypoint(ctx: JobContext):
 
     await session.say(intro_phrase)
 
-# Default Hugging Face models used when provider is huggingface (downloaded by download-files)
+# Default Hugging Face models used when provider is huggingface (downloaded by download-files). STT removed; use silero or openai.
 DEFAULT_HF_TTS_MODEL = "microsoft/speecht5_tts"
-DEFAULT_HF_STT_MODEL = "openai/whisper-tiny"
 DEFAULT_HF_LLM_MODEL = "distilgpt2"
 
 
@@ -349,7 +346,7 @@ def _collect_hf_models_from_configs(agent_template_dir: Path) -> set[str]:
         except Exception as e:
             logger.warning("Skip %s: %s", path, e)
             continue
-        for key in ("tts", "stt", "llm"):
+        for key in ("tts", "llm"):  # stt: no HF; use silero (local) or openai
             block = cfg.get(key)
             if not isinstance(block, dict):
                 continue
@@ -387,9 +384,8 @@ def _run_download_files() -> None:
     script_dir = Path(__file__).resolve().parent
     agent_template_dir = script_dir / "agent_template"
     model_ids = _collect_hf_models_from_configs(agent_template_dir)
-    # Ensure default Léa models are always included
+    # Ensure default Léa models are always included (TTS, LLM; no HF STT)
     model_ids.add(DEFAULT_HF_TTS_MODEL)
-    model_ids.add(DEFAULT_HF_STT_MODEL)
     model_ids.add(DEFAULT_HF_LLM_MODEL)
     if not model_ids:
         logger.info("No Hugging Face models found in configs.")

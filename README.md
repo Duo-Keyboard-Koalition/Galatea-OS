@@ -107,7 +107,7 @@ pip install -r requirements.txt
 python rime_agent.py download-files
 ```
 
-This downloads **Hugging Face** models used when an agent has `provider: "huggingface"` (e.g. Léa). Models are cached locally so the agent can run TTS, STT, and LLM via the **transformers** library in-process. Requires `transformers` and `torch` (see `requirements.txt`).
+This downloads **Hugging Face** models used when an agent has `provider: "huggingface"` for TTS or LLM (e.g. Léa). Models are cached locally so the agent can run TTS and LLM via the **transformers** library in-process. STT is **Silero** (local) or **OpenAI**; no Hugging Face STT. Requires `transformers` and `torch` (see `requirements.txt`).
 
 ---
 
@@ -198,10 +198,10 @@ Use `content` or `Content`; `type` is one of: `String`, `URL`, `File Path`.
 - **provider / model / url:** same as before.
 - **tts.voice_options:** ElevenLabs `voice_id`, `model_id`, `optimize_streaming_latency`; Kokoro `voice`, `speed`, `base_url`; Rime `speaker`, `speed_alpha`, `reduce_latency`, `max_tokens`.
 
-**Local / embedded models (no API):** For **Silero** and **Hugging Face**, TTS, STT, and (for HF) LLM run **locally inside the agent process**—no external API calls. Models are loaded in-process (torch.hub for Silero, transformers for Hugging Face). This is not an API; the models are embedded in the agent.
+**Local / embedded models (no API):** For **Silero**, TTS and STT run **locally inside the agent process** (torch.hub). For **Hugging Face**, TTS and LLM can run in-process (transformers). STT is **Silero** (local) or **OpenAI** (cloud); Hugging Face STT was removed.
 
 - **Chrystèle** (Silero TTS/STT, local LLM): `"tts": { "provider": "silero", "voice_options": { "language": "en", "speaker": "lj_16khz" } }`, `"stt": { "provider": "silero", "language": "en" }`, `"vad": { "provider": "silero", "model": "silero_vad" }`. TTS and STT use snakers4/silero-models (torch.hub) in-process. LLM can be LM Studio (OpenAI-compatible URL) or another local server.
-- **Léa** (Hugging Face, all local): `"tts"`, `"stt"`, and `"llm"` all use `"provider": "huggingface"` with Hugging Face Hub model IDs. The **transformers** library runs TTS, STT, and LLM **inside the agent process** (see `plugins/hf_tts.py`, `plugins/hf_stt.py`, `plugins/hf_llm.py`). Run `python rime_agent.py download-files` once to cache models. No API—models run locally in the agent.
+- **Léa** (Hugging Face TTS/LLM, local): `"tts"` and `"llm"` use `"provider": "huggingface"` with Hugging Face Hub model IDs (see `plugins/hf_tts.py`, `plugins/hf_llm.py`). STT uses **OpenAI** (or set `"stt": { "provider": "silero" }` for local). Run `python rime_agent.py download-files` once to cache HF models. No API for TTS/LLM—models run locally in the agent.
 
 **Alternative (OpenAI-compatible servers):** You can use local servers (e.g. Ollama, Whisper API, Kokoro) and `"provider": "openai"` with `"url": "http://localhost:..."` in the agent JSON. Those are still local but run in a separate process; Silero and Hugging Face run embedded in the agent with no separate server.
 
