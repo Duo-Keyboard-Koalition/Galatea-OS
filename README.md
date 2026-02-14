@@ -122,6 +122,8 @@ LIVEKIT_API_SECRET=<your-livekit-api-secret>
 
 OPENAI_API_KEY=<your-openai-api-key>
 RIME_API_KEY=<your-rime-api-key>
+ELEVEN_API_KEY=<your-elevenlabs-api-key>
+SMALLEST_API_KEY=<your-smallest-ai-api-key>
 
 # Optional: Tavus avatar integration
 TAVUS_API_KEY=<your-tavus-api-key>
@@ -133,6 +135,8 @@ TAVUS_REPLICA_ID=<your-tavus-replica-id>
 - **LiveKit**: For connecting to your LiveKit Cloud or self-hosted server.
 - **OpenAI**: For LLM responses (ensure your key has quota).
 - **Rime.ai**: For TTS (Arcana, Mistv2, etc.).
+- **ElevenLabs** (optional): For ElevenLabs TTS voices.
+- **Smallest AI** (optional): For Waves TTS and Pulse STT. Get a key at [console.smallest.ai](https://console.smallest.ai/).
 - **Tavus** (optional): For avatar video integration.
 
 **Note:**
@@ -196,14 +200,38 @@ Use `content` or `Content`; `type` is one of: `String`, `URL`, `File Path`.
 ```
 
 - **provider / model / url:** same as before.
-- **tts.voice_options:** ElevenLabs `voice_id`, `model_id`, `optimize_streaming_latency`; Kokoro `voice`, `speed`, `base_url`; Rime `speaker`, `speed_alpha`, `reduce_latency`, `max_tokens`.
+- **tts.voice_options:** ElevenLabs `voice_id`, `model_id`, `optimize_streaming_latency`; Kokoro `voice`, `speed`, `base_url`; Rime `speaker`, `speed_alpha`, `reduce_latency`, `max_tokens`; Smallest AI `voice_id`, `speed`, `sample_rate`.
 
 **Local / embedded models (no API):** For **Silero**, TTS and STT run **locally inside the agent process** (torch.hub). For **Hugging Face**, TTS and LLM can run in-process (transformers). STT is **Silero** (local) or **OpenAI** (cloud); Hugging Face STT was removed.
 
 - **Chrystèle** (Silero TTS/STT, local LLM): `"tts": { "provider": "silero", "voice_options": { "language": "en", "speaker": "lj_16khz" } }`, `"stt": { "provider": "silero", "language": "en" }`, `"vad": { "provider": "silero", "model": "silero_vad" }`. TTS and STT use snakers4/silero-models (torch.hub) in-process. LLM can be LM Studio (OpenAI-compatible URL) or another local server.
 - **Léa** (Hugging Face TTS/LLM, local): `"tts"` and `"llm"` use `"provider": "huggingface"` with Hugging Face Hub model IDs (see `plugins/hf_tts.py`, `plugins/hf_llm.py`). STT uses **OpenAI** (or set `"stt": { "provider": "silero" }` for local). Run `python rime_agent.py download-files` once to cache HF models. No API for TTS/LLM—models run locally in the agent.
 
+- **Smallest AI** (cloud): `"tts": { "provider": "smallestai", "model": "lightning", "voice_options": { "voice_id": "emily", "speed": 1.0 } }`, `"stt": { "provider": "smallestai" }`. TTS uses **Waves** API; STT uses **Pulse** API. Requires `SMALLEST_API_KEY` in `.env`. Get a key at [console.smallest.ai](https://console.smallest.ai/).
+
 **Alternative (OpenAI-compatible servers):** You can use local servers (e.g. Ollama, Whisper API, Kokoro) and `"provider": "openai"` with `"url": "http://localhost:..."` in the agent JSON. Those are still local but run in a separate process; Silero and Hugging Face run embedded in the agent with no separate server.
+
+---
+
+### Provider Comparison Table
+
+The table below shows which services each provider offers:
+
+| Provider | TTS | STT | VOD (Voice on Demand / Live Voice) | Type | API Key Env Var |
+|---|---|---|---|---|---|
+| **Rime** | ✅ Arcana, Mistv2 | ❌ | ✅ LiveKit real-time | Cloud | `RIME_API_KEY` |
+| **ElevenLabs** | ✅ v2, v3, Turbo | ❌ | ✅ LiveKit real-time | Cloud | `ELEVEN_API_KEY` |
+| **OpenAI** | ✅ (via compatible API) | ✅ Whisper, gpt-4o-mini-transcribe | ✅ LiveKit real-time | Cloud | `OPENAI_API_KEY` |
+| **Smallest AI** | ✅ Waves (lightning, lightning-large) | ✅ Pulse (32+ languages) | ✅ LiveKit real-time | Cloud | `SMALLEST_API_KEY` |
+| **Kokoro** | ✅ OpenAI-compatible local server | ❌ | ✅ LiveKit real-time | Local (server) | None (self-hosted) |
+| **Silero** | ✅ silero_tts (torch.hub) | ✅ silero_stt (torch.hub) | ✅ LiveKit real-time | Local (in-process) | None |
+| **Hugging Face** | ✅ SpeechT5 and others | ❌ (removed; use Silero or OpenAI) | ✅ LiveKit real-time | Local (in-process) | `HF_TOKEN` (optional) |
+| **Whisper** (local server) | ❌ | ✅ via OpenAI-compatible API | ✅ LiveKit real-time | Local (server) | None (self-hosted) |
+| **DeepSeek** | ❌ | ❌ | ❌ (LLM only) | Cloud | `DEEPSEEK_API_KEY` |
+| **Google** | ❌ | ❌ | ❌ (LLM only) | Cloud | `GOOGLE_API_KEY` |
+| **Anthropic** | ❌ | ❌ | ❌ (LLM only) | Cloud | `ANTHROPIC_API_KEY` |
+
+> **VOD** = Voice-on-Demand / live voice interaction via LiveKit. All TTS providers support real-time voice since audio is streamed through LiveKit rooms. Providers marked ❌ for VOD are LLM-only and do not provide speech services.
 
 ### VAD in agent JSON
 
@@ -300,6 +328,8 @@ To make agents sound livelier, use expressive tags in `personality_prompt` and `
 - [Rime.ai](https://www.rime.ai/)
 - [LiveKit Cloud](https://livekit.io/cloud)
 - [OpenAI Platform](https://platform.openai.com/)
+- [ElevenLabs](https://elevenlabs.io/)
+- [Smallest AI](https://smallest.ai/) — [Python SDK](https://github.com/smallest-inc/smallest-python-sdk)
 - [Tavus](https://www.tavus.io/) (if using avatar video)
 
 ---

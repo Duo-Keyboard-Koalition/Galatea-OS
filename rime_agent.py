@@ -27,9 +27,16 @@ from livekit.plugins import (
     google,
     anthropic,
     noise_cancellation,
-    rime,
     silero,
-    elevenlabs,
+)
+from plugins import (
+    SmallestTTS,
+    SmallestSTT,
+    ElevenLabsTTS,
+    RimeTTS,
+    KokoroTTS,
+    SileroTTS,
+    SileroSTT,
 )
 from tools.snowflake_rag_tool import get_snowflake_rag_response, write_chat_to_snowflake
 
@@ -255,7 +262,6 @@ async def entrypoint(ctx: JobContext):
 
     # TTS from tts config: elevenlabs, kokoro, rime, huggingface, silero; options from voice_options
     if tts_provider == "silero":
-        from plugins.silero_tts import SileroTTS
         voice_tts = SileroTTS(
             language=vo.get("language", "en"),
             speaker=vo.get("speaker", "lj_16khz"),
@@ -270,11 +276,8 @@ async def entrypoint(ctx: JobContext):
         el_opts = {k: v for k, v in vo.items() if k not in ("provider", "model", "url", "model_id", "voice_id")}
         model = tts_model or vo.get("model_id", "eleven_multilingual_v2")
         voice_id = vo.get("voice_id")
-        if "optimize_streaming_latency" in el_opts:
-            el_opts["streaming_latency"] = el_opts.pop("optimize_streaming_latency")
-        voice_tts = elevenlabs.TTS(model=model, voice_id=voice_id, **el_opts)
+        voice_tts = ElevenLabsTTS(model=model, voice_id=voice_id, **el_opts)
     elif tts_provider == "kokoro":
-        from plugins.kokoro_tts import KokoroTTS
         base_url = tts_url or vo.get("base_url") or os.getenv("KOKORO_BASE_URL", "http://localhost:8880/v1")
         voice_tts = KokoroTTS(
             base_url=base_url,
@@ -283,8 +286,16 @@ async def entrypoint(ctx: JobContext):
             voice=vo.get("voice", "af_bella"),
             speed=vo.get("speed", 1.0),
         )
+    elif tts_provider == "smallestai":
+        voice_tts = SmallestTTS(
+            api_key=vo.get("api_key") or os.getenv("SMALLEST_API_KEY"),
+            model=tts_model or vo.get("model", "lightning"),
+            voice_id=vo.get("voice_id", "emily"),
+            speed=vo.get("speed", 1.0),
+            sample_rate=vo.get("sample_rate", 24000),
+        )
     else:
-        voice_tts = rime.TTS(
+        voice_tts = RimeTTS(
             model=tts_model or vo.get("model", "arcana"),
             speaker=vo.get("speaker", "celeste"),
             speed_alpha=vo.get("speed_alpha", 1.5),
@@ -318,11 +329,15 @@ async def entrypoint(ctx: JobContext):
 
     # STT: silero (local), whisper (local server), or openai (cloud). huggingface STT removed; use silero or openai.
     if stt_provider == "silero":
-        from plugins.silero_stt import SileroSTT
         voice_stt = SileroSTT(language=stt_cfg.get("language") or stt_model or "en")
     elif stt_provider == "whisper":
         base_url = stt_url or os.getenv("STT_WHISPER_BASE_URL", "http://localhost:8000/v1")
         voice_stt = openai.STT(model=stt_model or "whisper-1", base_url=base_url)
+    elif stt_provider == "smallestai":
+        voice_stt = SmallestSTT(
+            api_key=os.getenv("SMALLEST_API_KEY"),
+            language=stt_cfg.get("language") or stt_model or "en",
+        )
     else:
         # openai (or huggingface config reverted to openai)
         voice_stt = openai.STT(
