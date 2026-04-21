@@ -15,6 +15,7 @@
 # ///
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -38,7 +39,7 @@ from livekit.agents import (
 )
 from livekit.plugins import silero, anthropic
 
-# Ensure the project root (parent of 'galatea_livekit') is in sys.path so 'galatea_livekit' imports work
+# Ensure the project root is in sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
@@ -61,27 +62,28 @@ class GalateaVoiceAgent(Agent):
     async def llm_node(
         self, chat_ctx: ChatContext, tools: list[FunctionTool], model_settings: ModelSettings
     ):
-        # Voice agent reasoning node
         return Agent.default.llm_node(self, chat_ctx, tools, model_settings)
 
 def load_workspace() -> dict:
-    """Load SOUL, RULES, and PERSONALITY from the workspace."""
-    user_root = PathManager.get_root()
-    repo_workspace = Path(__file__).resolve().parent / "workspace"
+    """Load config.json, SOUL.md, and SKILLS.md from the .galatea directory."""
+    config_path = PathManager.get_config_path()
+    soul_path = PathManager.get_soul_path()
+    skills_path = PathManager.get_skills_path()
     
-    def _load_file(name: str) -> str:
-        user_file = user_root / name
-        repo_file = repo_workspace / name
-        if user_file.exists():
-            return user_file.read_text(encoding="utf-8")
-        if repo_file.exists():
-            return repo_file.read_text(encoding="utf-8")
-        return ""
+    config = {}
+    if config_path.exists():
+        try:
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.error(f"Failed to load config.json: {e}")
+
+    soul = soul_path.read_text(encoding="utf-8") if soul_path.exists() else "You are a helpful assistant."
+    skills = skills_path.read_text(encoding="utf-8") if skills_path.exists() else ""
 
     return {
-        "soul": _load_file("SOUL.md"),
-        "rules": _load_file("RULES.md"),
-        "personality": _load_file("PERSONALITY.md"),
+        "config": config,
+        "soul": soul,
+        "skills": skills,
     }
 
 server = AgentServer()
@@ -92,16 +94,20 @@ async def entrypoint(ctx: JobContext):
     
     # 1. Load Workspace
     workspace = load_workspace()
-    system_prompt = f"{workspace['soul']}\n\n{workspace['rules']}\n\n{workspace['personality']}"
+    cfg = workspace["config"]
+    
+    system_prompt = f"{workspace['soul']}\n\nCORE SKILLS AND CAPABILITIES:\n{workspace['skills']}"
+    
+    agent_name = cfg.get("name", "Natasha")
 
     # 2. Data Structures: Queues for Bus Integration
     bus = MessageBus()
     chat_id = f"voice_{ctx.room.name}"
 
-    # 3. Tools for Agent to interact with the Galatea Ecosystem (the galatea_livekit)
-    @function_tool(description="Send a physical or system command to Natasha's galatea_livekit processing loop.")
+    # 3. Tools for Agent to interact with the Galatea Ecosystem
+    @function_tool(description=f"Send a physical or system command to {agent_name}'s processing loop.")
     async def command_body(
-        text: Annotated[str, "The command or intent to send to the galatea_livekit"]
+        text: Annotated[str, "The command or intent to send to the internal system"]
     ) -> str:
         logger.info(f"Tool Call: command_body text='{text}'")
         msg = InboundMessage(
@@ -111,7 +117,7 @@ async def entrypoint(ctx: JobContext):
             text=text
         )
         await bus.publish_inbound(msg)
-        return "Command sent to galatea_livekit bus."
+        return "Command sent to system bus."
 
     # 4. Initialize Agent & Session
     agent = GalateaVoiceAgent(
@@ -119,18 +125,31 @@ async def entrypoint(ctx: JobContext):
         tools=[command_body],
     )
 
-    # Use ElevenLabs for BOTH TTS and STT as requested
-    voice_id = os.getenv("ELEVEN_VOICE_ID", "95XPUDALaQL1LY3I023E")
+    # Use ElevenLabs for BOTH TTS and STT
+    voice_id = cfg.get("voice_id") or os.getenv("ELEVEN_VOICE_ID", "95XPUDALaQL1LY3I023E")
+    llm_model = cfg.get("llm_model", "claude-haiku-4-5")
+    llm_provider = cfg.get("provider", "anthropic").lower()
+
+    if llm_provider == "anthropic":
+        llm = anthropic.LLM(model=llm_model)
+    elif llm_provider == "openai":
+        from livekit.plugins import openai
+        llm = openai.LLM(model=llm_model)
+    elif llm_provider == "google":
+        from livekit.plugins import google
+        llm = google.LLM(model=llm_model)
+    else:
+        llm = inference.LLM(llm_model)
 
     session = AgentSession(
         vad=silero.VAD.load(),
-        stt=ElevenLabsSTT(), # Native ElevenLabs Scribe STT
-        llm=anthropic.LLM(model="claude-haiku-4-5"),
+        stt=ElevenLabsSTT(), 
+        llm=llm,
         tts=ElevenLabsTTS(voice_id=voice_id),
         tools=[command_body]
     )
 
-    # 5. Listen for Outbound Queue (Responses from Galatea Bot)
+    # 5. Listen for Outbound Queue (Responses from System)
     async def _listen_outbound():
         async for msg in bus.subscribe_outbound("voice"):
             if msg.chat_id == chat_id:
@@ -153,11 +172,10 @@ async def entrypoint(ctx: JobContext):
 
     await session.start(agent, room=ctx.room)
     
-    # Natasha Greeting
-    await session.say("Hey there. It's Natasha. I'm ready to help you manage everything. What should we do first?")
+    # Ready and listening without robotic greeting
+    logger.info(f"{agent_name} is now connected and listening.")
 
 if __name__ == "__main__":
-    # Default to console if no args
     if len(sys.argv) == 1:
         sys.argv.append("console")
     cli.run_app(server)

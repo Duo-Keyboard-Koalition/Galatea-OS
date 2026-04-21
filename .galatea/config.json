@@ -1,0 +1,6 @@
+{
+  "name": "Natasha",
+  "provider": "anthropic",
+  "voice_id": "95XPUDALaQL1LY3I023E",
+  "llm_model": "claude-haiku-4-5"
+}

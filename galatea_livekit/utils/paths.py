@@ -2,29 +2,39 @@ import os
 from pathlib import Path
 
 class PathManager:
-    # GALATEA_MODE can be 'prod' or 'test'
-    MODE = os.getenv("GALATEA_MODE", "test")
+    # GALATEA_MODE can be 'prod' or 'dev'
+    MODE = os.getenv("GALATEA_MODE", "dev")
     
     @classmethod
     def get_root(cls) -> Path:
-        # Priority: ENV > Default
+        # Priority: 
+        # 1. GALATEA_ROOT environment variable (Folder of choosing in dev)
+        # 2. Prod mode -> ~/.galatea
+        # 3. Dev mode fallback -> .galatea in the project root
+        
         env_root = os.getenv("GALATEA_ROOT")
         if env_root:
             root = Path(env_root)
         elif cls.MODE == "prod":
             root = Path.home() / ".galatea"
         else:
-            # Local testing path as default fallback
-            root = Path("/Volumes/PHILIPS/1-repos/1-GalateaAI/galatea_livekit/.galatea")
+            # Fallback to a .galatea folder in the current project root
+            root = Path(__file__).resolve().parent.parent.parent / ".galatea"
         
         root.mkdir(parents=True, exist_ok=True)
         return root
 
     @classmethod
-    def get_config_dir(cls) -> Path:
-        c = cls.get_root() / "config"
-        c.mkdir(parents=True, exist_ok=True)
-        return c
+    def get_config_path(cls) -> Path:
+        return cls.get_root() / "config.json"
+
+    @classmethod
+    def get_soul_path(cls) -> Path:
+        return cls.get_root() / "SOUL.md"
+
+    @classmethod
+    def get_skills_path(cls) -> Path:
+        return cls.get_root() / "SKILLS.md"
 
     @classmethod
     def get_data_dir(cls) -> Path:
@@ -33,15 +43,5 @@ class PathManager:
         return d
 
     @classmethod
-    def get_bucket_dir(cls, bucket_name: str = "default") -> Path:
-        b = cls.get_data_dir() / "bucket" / bucket_name
-        b.mkdir(parents=True, exist_ok=True)
-        return b
-
-    @classmethod
     def get_db_path(cls, db_name: str) -> str:
         return str(cls.get_data_dir() / f"{db_name}.db")
-
-    @classmethod
-    def get_config_path(cls) -> Path:
-        return cls.get_root() / "config.json"
